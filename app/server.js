@@ -106,7 +106,8 @@ function api_register(user, pass, req, res){
 
 
 			else {
-				if(req.body.is_admin) {
+				if(req.body.is_admin)
+				{
 					var admin = true;
 				}
 				else {
