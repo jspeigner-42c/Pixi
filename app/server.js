@@ -13,6 +13,7 @@ var ObjectID = require('mongodb').ObjectID;
 var mongo = require('mongodb').MongoClient;
 var Logger = require('mongodb').Logger;
 
+const dotenv = require('dotenv');
 
 //file uploading stuff
 var multer = require('multer');
@@ -26,8 +27,15 @@ var session = require('client-sessions');
 var csurf = require('csurf');
 var jwt = require('jsonwebtoken');
 
-//var dbname = 'mongodb://localhost:27017/Pixidb';
-var dbname = 'mongodb://pixidb:27017/Pixidb';
+/* // Connect to Okta
+const okta = require('@okta/okta-sdk-nodejs');
+
+// Okta connection
+const okta_client = new okta.Client({
+	orgUrl: 'https://dev-444127.okta.com/',
+	token: '00qKxP8c1OQrHL2tk4TCHYYN-F8LXPbqvZ65H0zkpK'    // Obtained from Developer Dashboard
+  }); */
+
 //create express server and register global middleware
 var api = express();
 api.use(bodyParser.json());
@@ -39,33 +47,40 @@ api.use(cookieParser());
 
 //serve files in /public and /uploads dir
 api.use(serveStatic(__dirname + '/uploads'));
-
 api.use(serveStatic(__dirname + '/public'));
 
-//API binds to interface pixidb:7000
+//API binds to interface pixiapp:8090
 api.listen(8090, function(){
 	if(process.env.NODE_ENV === undefined)
 		process.env.NODE_ENV = 'development';
-	console.log("Server running on pixidb, port %d in %s mode.", this.address().port, process.env.NODE_ENV);
+	console.log("PixiApp: API running on port %d in %s mode.", this.address().port, process.env.NODE_ENV);
 });
 
-// test db connection
+// Connect to MongoDB
+
+// Mongo V3 Driver separates url from dbname / uses client
+//var db_name = 'Pixidb'
+
+dotenv.config();
+const dbname = process.env.MONGO_URL;
+console.log('Will connect to Mongo on: ' + dbname);
+
+// Test DB Connection at startup
 mongo.connect(dbname, function(err, db) {
-  if(!err) {
-    console.log("We are connected");
-  }
-});
+	if(!err) {
+	  console.log("We are connected to MongoDB");
+	}
+  });
 
 
-// functions
 function api_authenticate(user, pass, req, res){
 	mongo.connect(dbname, function(err, db){
 		//Logger.setLevel('debug');
-		if(err){
-			console.log('MongoDB connection error...');
-			return err;
-		}
-		console.log('user ' + user + ' pass ' + pass);
+		if(err){ 
+ 			console.log('MongoDB connection error...');
+ 			return err;
+		} 
+		console.log('Logging user ' + user + ' with password: ' + pass);
 		db.collection('users').findOne({email: user, password: pass },function(err, result){
 			if(err){
 				console.log('Query error...');
@@ -75,36 +90,34 @@ function api_authenticate(user, pass, req, res){
 					console.log('id ' + result);
 					var user = result;
 					//BIG VULNERABILITY
-       				var payload = { user };
-       				var token = jwt.sign(payload, config.session_secret);
+					var payload = { user };
+					var token = jwt.sign(payload, config.session_secret, { algorithm: 'HS384',
+																		   issuer: 'https://42crunch.com', 
+																		   audience: 'pixiUsers'});
        				res.json({message: "Token is a header JWT ", token: token});
 				}
-
-
 			else
-				res.status(202).json({message: 'sorry pal, invalid login' });
+				res.status(401).json({message: 'sorry pal, invalid login' });	
 		});
-
 	});
 }
 
 function api_register(user, pass, req, res){
-	console.log('in register');
+	
 	mongo.connect(dbname, function(err, db){
-		 		  //Logger.setLevel('debug');
-		if(err){
-			console.log('MongoDB connection error...');
-			return err;
+		//Logger.setLevel('debug');
+		if(err){ 
+ 			console.log('MongoDB connection error...');
+ 			return err;
 		}
-		console.log('user ' + user + ' pass ' + pass);
+		console.log('Registering user: ' + user + ' with password: ' + pass);
 		user = user.toLowerCase();
+		// Check if user already exist
 		db.collection('users').findOne({ email: user },function(err, result){
 			if(err){ return err; }
 			if(result !== null) {
-				res.status(202).json({message: user + ' is already registered.' });
-				}
-
-
+				res.status(400).json({message: user + ' is already registered.' });
+			}
 			else {
 				if(req.body.is_admin)
 				{
@@ -115,8 +128,8 @@ function api_register(user, pass, req, res){
 				}
 				var name = randomWords({ exactly: 2 });
 				name = name.join('');
-				console.log(name);
-			  if (req.body.account_balance < 0 ){
+				console.log("Username: " + name);
+			  	if (req.body.account_balance < 0 ){
 					var err = new Error().stack;
 					res.status(400).json(err);
 					return;
@@ -127,7 +140,8 @@ function api_register(user, pass, req, res){
 					  	[],
 						{ "$inc" : { "seq": 1 } },
 					function(err, doc){
-						db.collection('users').insert({
+						console.log ("Sequence: " +doc.value.seq);
+						db.collection('users').insertOne({
 							_id: doc.value.seq,
 							email: user,
 							password: pass,
@@ -136,7 +150,7 @@ function api_register(user, pass, req, res){
 							account_balance: req.body.account_balance,
 							is_admin: admin,
 							all_pictures : [] }, function(err, user){
-								if(err) { return err }
+								if(err) { res.status(500).json(err); return;}
 								if(user != null) {
 									console.log('id ' + JSON.stringify(user.ops));
 				       				var user = user.ops[0];
@@ -151,10 +165,10 @@ function api_register(user, pass, req, res){
 
 						} // seq call back
 					)
-				} // else
+			} // else
+		}); //find one user
 
-			}); //find one user
-		});
+	});
 }
 
 
@@ -849,13 +863,7 @@ app.use(session({
 app.listen(8000, function(){
 	if(process.env.NODE_ENV === undefined)
 		process.env.NODE_ENV = 'development';
-	console.log("Server running on pixidb, port %d in %s mode.", this.address().port, process.env.NODE_ENV);
-});
-
-mongo.connect("mongodb://pixidb:27017/Pixidb", function(err, db) {
-  if(!err) {
-    console.log("We are connected");
-  }
+	console.log("PixiApp -UI running on port %d in %s mode.", this.address().port, process.env.NODE_ENV);
 });
 
 

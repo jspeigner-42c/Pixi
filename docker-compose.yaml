@@ -12,8 +12,10 @@ services:
       - "28017"
 
   app:
-    image: 42crunch/pixi:try6
+    image: 42crunch/pixi:42c
     container_name: pixiapp
     ports:
       - "8000:8000"
       - "8090:8090"
+    environment: 
+      - MONGO_URL=mongodb://pixidb:27017/Pixidb
