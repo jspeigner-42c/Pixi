@@ -12,7 +12,7 @@ services:
       - "28017"
 
   app:
-    image: 42crunch/pixi:42c
+    image: 42crunch/pixi:v3
     container_name: pixiapp
     ports:
       - "8000:8000"
